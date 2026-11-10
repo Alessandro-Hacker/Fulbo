@@ -1,0 +1,25 @@
+# Gradle / build
+.gradle/
+build/
+**/build/
+.kotlin/
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Android Studio / IntelliJ
+.idea/
+*.iml
+.navigation/
+
+# Configuración local y secretos (¡nunca subir!)
+local.properties
+secrets.properties
+*.keystore
+*.jks
+google-services.json
+
+# Sistema
+.DS_Store
+Thumbs.db
+*.log

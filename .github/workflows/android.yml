@@ -1,0 +1,46 @@
+name: Android CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configurar JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Configurar Gradle (con caché)
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Dar permiso a gradlew
+        run: chmod +x gradlew
+
+      - name: Tests unitarios
+        run: ./gradlew testDevDebugUnitTest
+
+      - name: Lint
+        run: ./gradlew lintDevDebug
+
+      - name: Compilar APK de desarrollo
+        run: ./gradlew assembleDevDebug
+
+      - name: Subir reportes si algo falla
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reportes
+          path: app/build/reports/
