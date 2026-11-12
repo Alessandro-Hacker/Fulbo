@@ -1,0 +1,7 @@
+{
+  "projects": {
+    "default": "fulbo-3b600",
+    "dev": "fulbo-3b600",
+    "prod": "fulboprod-7af84"
+  }
+}

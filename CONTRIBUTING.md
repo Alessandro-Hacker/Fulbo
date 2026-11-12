@@ -38,12 +38,12 @@ chore(gradle): actualizar compose bom
 
 ## Antes de abrir el PR
 
-- [ ] Compila: `./gradlew assembleDevDebug`
-- [ ] Tests pasan: `./gradlew testDevDebugUnitTest`
-- [ ] Sin advertencias nuevas de lint: `./gradlew lintDevDebug`
+- [ ] Compila: `./gradlew :androidApp:assembleDevDebug`
+- [ ] Tests pasan: `./gradlew :shared:testDebugUnitTest`
+- [ ] Sin advertencias nuevas de lint: `./gradlew :androidApp:lintDevDebug`
 - [ ] Pantallas nuevas tienen `@Preview`
-- [ ] Textos en `strings.xml`, no escritos directo en el código
-- [ ] Nada de claves, tokens ni `google-services.json` en el commit
+- [ ] Textos en `composeResources/values/strings.xml`, no escritos directo en el código
+- [ ] Nada de claves, tokens ni `google-services.json` / `GoogleService-Info.plist` en el commit
 
 ## Datos sensibles
 
