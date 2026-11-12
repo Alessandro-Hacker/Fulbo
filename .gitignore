@@ -23,3 +23,12 @@ google-services.json
 .DS_Store
 Thumbs.db
 *.log
+
+# Firebase: claves de cada app (se guardan como secrets en GitHub Actions)
+GoogleService-Info.plist
+
+# iOS / Xcode
+xcuserdata/
+*.xcuserstate
+Pods/
+DerivedData/

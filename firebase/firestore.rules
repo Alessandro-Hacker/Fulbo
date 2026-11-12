@@ -1,0 +1,231 @@
+rules_version = '2';
+
+// ============================================================================
+// FULBO - Reglas de seguridad de Cloud Firestore
+//
+// Idea general:
+//   * La app (cliente) solo LEE casi todo y ESCRIBE muy poco.
+//   * Todo lo que mueve cupos, reputacion, plan o dinero lo escriben las
+//     Cloud Functions con el Admin SDK, que se salta estas reglas.
+//   * Si una regla no dice "allow", esta prohibido.
+//
+// Probar en local:  firebase emulators:start   (en la carpeta firebase/)
+// ============================================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---------- Funciones de ayuda -------------------------------------------
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function esYo(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    function correoVerificado() {
+      return signedIn() && request.auth.token.email_verified == true;
+    }
+
+    function esAdmin() {
+      // Se asigna con un custom claim desde el Admin SDK: { admin: true }
+      return signedIn() && request.auth.token.admin == true;
+    }
+
+    function rutaUsuario(uid) {
+      return /databases/$(database)/documents/usuarios/$(uid);
+    }
+
+    // El documento usuarios/{uid} solo lo crea la funcion completarPerfil
+    // despues de validar DNI y edad. Si existe, el perfil esta completo.
+    function perfilCompleto() {
+      return correoVerificado() && exists(rutaUsuario(request.auth.uid));
+    }
+
+    function esPremium() {
+      return perfilCompleto()
+        && get(rutaUsuario(request.auth.uid)).data.plan == 'premium';
+    }
+
+    function soloCambia(campos) {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(campos);
+    }
+
+    function puntaje(v) {
+      return v is int && v >= 1 && v <= 5;
+    }
+
+    // ---------- usuarios ------------------------------------------------------
+    // Perfil publico: lo ve cualquier usuario con sesion (tarjetas, plantillas).
+    match /usuarios/{uid} {
+      allow read: if signedIn();
+
+      // Crear: lo hace la Cloud Function completarPerfil.
+      allow create, delete: if false;
+
+      // El dueno solo puede editar datos "cosmeticos". Nunca reputacion, plan,
+      // faltas ni partidos_jugados.
+      allow update: if esYo(uid)
+        && soloCambia(['alias', 'ciudad', 'posicion', 'nivel', 'ubicacion', 'foto_url'])
+        && (!('posicion' in request.resource.data)
+            || request.resource.data.posicion in ['arquero', 'defensa', 'medio', 'delantero'])
+        && (!('nivel' in request.resource.data)
+            || request.resource.data.nivel in ['recien', 'casual', 'intermedio', 'competitivo']);
+
+      // Datos sensibles (dni_hash, fecha_nacimiento): solo los lee el dueno.
+      match /privado/{doc} {
+        allow read: if esYo(uid);
+        allow write: if false;
+      }
+
+      // Tokens de notificaciones push (FCM), uno por dispositivo.
+      match /dispositivos/{token} {
+        allow read, delete: if esYo(uid);
+        allow create, update: if esYo(uid)
+          && request.resource.data.keys().hasOnly(['plataforma', 'actualizado_en'])
+          && request.resource.data.plataforma in ['android', 'ios'];
+      }
+    }
+
+    // Indice de DNI ya usados y acumuladores de reputacion: solo servidor.
+    match /dni_registrados/{hash} { allow read, write: if false; }
+    match /reputacion/{uid}       { allow read, write: if false; }
+
+    // ---------- duenos de cancha y canchas -----------------------------------
+    match /duenos_cancha/{uid} {
+      allow read: if signedIn();
+      allow create: if esYo(uid)
+        && request.resource.data.verificado == false
+        && request.resource.data.keys().hasOnly(['razon_social', 'ruc', 'telefono', 'verificado']);
+      allow update: if esYo(uid)
+        && soloCambia(['razon_social', 'telefono']);
+      allow delete: if false;
+    }
+
+    match /canchas/{canchaId} {
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && request.resource.data.dueno_uid == request.auth.uid
+        && exists(/databases/$(database)/documents/duenos_cancha/$(request.auth.uid));
+      allow update: if signedIn()
+        && resource.data.dueno_uid == request.auth.uid
+        && request.resource.data.dueno_uid == resource.data.dueno_uid;
+      allow delete: if false; // se desactiva con activa = false
+    }
+
+    // ---------- partidos ------------------------------------------------------
+    // El "borrador" vive solo en la app. En Firestore un partido nace PUBLICADO.
+    match /partidos/{partidoId} {
+      allow read: if signedIn();
+
+      allow create: if perfilCompleto()
+        && request.resource.data.keys().hasOnly([
+             'organizador_uid', 'cancha_id', 'cancha_nombre', 'equipo_id',
+             'fecha_hora', 'formato', 'cupos_totales', 'cupos_libres',
+             'nivel_buscado', 'rep_minima', 'costo_persona', 'cancha_confirmada',
+             'ubicacion', 'ciudad', 'descripcion', 'estado', 'creado_en'])
+        && request.resource.data.organizador_uid == request.auth.uid
+        && request.resource.data.estado == 'publicado'
+        && request.resource.data.fecha_hora is timestamp
+        && request.resource.data.fecha_hora > request.time
+        && request.resource.data.formato in ['4v4', '5v5', '7v7', '11v11']
+        && request.resource.data.nivel_buscado in ['recien', 'casual', 'intermedio', 'competitivo']
+        && request.resource.data.cupos_totales is int
+        && request.resource.data.cupos_totales >= 2
+        && request.resource.data.cupos_totales <= 30
+        // el organizador ocupa el primer cupo
+        && request.resource.data.cupos_libres == request.resource.data.cupos_totales - 1
+        && request.resource.data.costo_persona is number
+        && request.resource.data.costo_persona >= 0
+        && request.resource.data.cancha_confirmada is bool
+        && request.resource.data.ubicacion is latlng
+        && request.resource.data.creado_en == request.time;
+
+      // El organizador solo puede corregir estos campos. Cupos y estado los
+      // mueven las Cloud Functions (inscripciones, cancelar, finalizar).
+      allow update: if signedIn()
+        && resource.data.organizador_uid == request.auth.uid
+        && resource.data.estado in ['publicado', 'completo']
+        && soloCambia(['cancha_confirmada', 'descripcion', 'costo_persona']);
+
+      allow delete: if false;
+
+      // Plantilla: la ve todo el que tenga sesion; la escriben las funciones.
+      // El id del documento es el uid del jugador -> una inscripcion por persona.
+      match /inscripciones/{uid} {
+        allow read: if signedIn();
+        allow write: if false;
+      }
+
+      // Calificaciones: id = "<emisor>_<receptor>" -> una por pareja y partido.
+      match /calificaciones/{calId} {
+        // Nadie ve quien le puso que nota (evita represalias). Solo el emisor.
+        allow read: if signedIn() && resource.data.emisor_uid == request.auth.uid;
+
+        allow create: if signedIn()
+          && request.resource.data.keys().hasOnly([
+               'emisor_uid', 'receptor_uid', 'puntualidad', 'asistencia',
+               'pago', 'trato', 'comentario', 'creado_en'])
+          && request.resource.data.emisor_uid == request.auth.uid
+          && request.resource.data.receptor_uid != request.auth.uid
+          && calId == request.auth.uid + '_' + request.resource.data.receptor_uid
+          // el partido esta en su ventana de 48 h
+          && get(/databases/$(database)/documents/partidos/$(partidoId)).data.estado == 'en_calificacion'
+          // los dos jugaron ese partido
+          && get(/databases/$(database)/documents/partidos/$(partidoId)/inscripciones/$(request.auth.uid)).data.asistio == true
+          && get(/databases/$(database)/documents/partidos/$(partidoId)/inscripciones/$(request.resource.data.receptor_uid)).data.asistio == true
+          && puntaje(request.resource.data.puntualidad)
+          && puntaje(request.resource.data.asistencia)
+          && puntaje(request.resource.data.pago)
+          && puntaje(request.resource.data.trato)
+          && (!('comentario' in request.resource.data)
+              || (request.resource.data.comentario is string
+                  && request.resource.data.comentario.size() <= 140))
+          && request.resource.data.creado_en == request.time;
+
+        allow update, delete: if false;
+      }
+    }
+
+    // ---------- equipos fijos (Premium) --------------------------------------
+    match /equipos/{equipoId} {
+      allow read: if signedIn();
+      allow create: if esPremium()
+        && request.resource.data.creador_uid == request.auth.uid
+        && request.resource.data.keys().hasOnly(['nombre', 'ciudad', 'formato', 'creador_uid', 'creado_en'])
+        && request.resource.data.formato in ['4v4', '5v5', '7v7', '11v11'];
+      allow update: if signedIn()
+        && resource.data.creador_uid == request.auth.uid
+        && soloCambia(['nombre', 'ciudad', 'formato']);
+      allow delete: if signedIn() && resource.data.creador_uid == request.auth.uid;
+
+      match /miembros/{uid} {
+        allow read: if signedIn();
+        allow write: if signedIn()
+          && get(/databases/$(database)/documents/equipos/$(equipoId)).data.creador_uid == request.auth.uid
+          && (request.resource == null || request.resource.data.rol in ['titular', 'suplente']);
+      }
+    }
+
+    // ---------- suscripciones (las escribe el webhook de pago) ---------------
+    match /suscripciones/{id} {
+      allow read: if signedIn() && resource.data.usuario_uid == request.auth.uid;
+      allow write: if false;
+    }
+
+    // ---------- reportes (moderacion) ----------------------------------------
+    match /reportes/{id} {
+      allow create: if perfilCompleto()
+        && request.resource.data.keys().hasOnly(['reportante_uid', 'reportado_uid', 'partido_id', 'motivo', 'estado', 'creado_en'])
+        && request.resource.data.reportante_uid == request.auth.uid
+        && request.resource.data.reportado_uid != request.auth.uid
+        && request.resource.data.estado == 'abierto'
+        && request.resource.data.motivo is string
+        && request.resource.data.motivo.size() <= 500;
+      allow read, update: if esAdmin();
+      allow delete: if false;
+    }
+  }
+}
