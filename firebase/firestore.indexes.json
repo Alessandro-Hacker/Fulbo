@@ -42,6 +42,22 @@
       ]
     },
     {
+      "collectionGroup": "canchas",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "dueno_uid", "order": "ASCENDING" },
+        { "fieldPath": "activa", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "canchas",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "activa", "order": "ASCENDING" },
+        { "fieldPath": "geohash", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "inscripciones",
       "queryScope": "COLLECTION_GROUP",
       "fields": [

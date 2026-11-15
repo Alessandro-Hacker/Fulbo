@@ -1,7 +1,10 @@
 // Punto de entrada: cada export es una Cloud Function que se despliega.
 export { completarPerfil } from "./perfil";
 export { solicitarInscripcion, resolverSolicitud, darseDeBaja } from "./inscripciones";
-export { alCrearPartido, cancelarPartido, finalizarPartido } from "./partidos";
+export {
+  alCrearPartido, cancelarPartido, confirmarPartidoIncompleto, finalizarPartido,
+} from "./partidos";
+export { verificarDueno, alCrearCancha, alMoverCancha } from "./canchas";
 export { alCrearCalificacion } from "./reputacion";
 export { tareasCadaQuinceMinutos } from "./programadas";
 export { webhookPago } from "./pagos";

@@ -1,23 +1,22 @@
-// Registro: crea el perfil del usuario despues de validar DNI y edad.
+// Registro: crea el perfil del usuario despues de verificar que es mayor de 16.
 // Flujo 2 del documento de diagramas.
-import { createHmac } from "node:crypto";
+//
+// NO se pide DNI. La Ley 29733 (principio de calidad, art. 8) exige recoger
+// solo los datos necesarios para la finalidad, y para armar pichangas el DNI
+// no lo es: obliga a tratarlo como dato sensible en logs, backups y caches, y
+// espanta usuarios en el registro. La identidad real de un jugador la respalda
+// su reputacion, no su documento.
 import { onCall, HttpsError } from "firebase-functions/v2/https";
-import { defineSecret } from "firebase-functions/params";
 import {
-  db, FieldValue, NIVELES, POSICIONES, exigirSesion, refUsuario, texto,
+  FieldValue, NIVELES, POSICIONES, exigirSesion, refUsuario, texto,
 } from "./comun";
 
-// Clave secreta para el hash del DNI. Se crea una sola vez con:
-//   firebase functions:secrets:set DNI_PEPPER
-// Sin esta clave, un hash simple de 8 digitos se revierte probando los
-// 100 millones de combinaciones en minutos.
-const DNI_PEPPER = defineSecret("DNI_PEPPER");
+export const EDAD_MINIMA = 16;
 
 interface DatosPerfil {
   nombre: string;
   apellido: string;
   alias: string;
-  dni: string;
   fechaNacimiento: string; // "YYYY-MM-DD"
   ciudad: string;
   posicion: string;
@@ -38,18 +37,15 @@ function edadEnAnios(fecha: string): number {
   return edad;
 }
 
-export const completarPerfil = onCall({ secrets: [DNI_PEPPER] }, async (req) => {
+export const completarPerfil = onCall(async (req) => {
   const uid = exigirSesion(req);
   const d = req.data as DatosPerfil;
 
   if (d.aceptaTerminos !== true) {
     throw new HttpsError("failed-precondition", "Debes aceptar los terminos.");
   }
-  if (typeof d.dni !== "string" || !/^\d{8}$/.test(d.dni)) {
-    throw new HttpsError("invalid-argument", "El DNI debe tener 8 digitos.");
-  }
-  if (edadEnAnios(d.fechaNacimiento) < 16) {
-    throw new HttpsError("failed-precondition", "Debes tener 16 anos o mas.");
+  if (edadEnAnios(d.fechaNacimiento) < EDAD_MINIMA) {
+    throw new HttpsError("failed-precondition", `Debes tener ${EDAD_MINIMA} anos o mas.`);
   }
   if (!POSICIONES.includes(d.posicion as never)) {
     throw new HttpsError("invalid-argument", "Posicion invalida.");
@@ -58,16 +54,13 @@ export const completarPerfil = onCall({ secrets: [DNI_PEPPER] }, async (req) => 
     throw new HttpsError("invalid-argument", "Nivel invalido.");
   }
 
-  const dniHash = createHmac("sha256", DNI_PEPPER.value()).update(d.dni).digest("hex");
-  const refDni = db.doc(`dni_registrados/${dniHash}`);
   const refPerfil = refUsuario(uid);
 
-  await db.runTransaction(async (tx) => {
-    const [dniSnap, perfilSnap] = await Promise.all([tx.get(refDni), tx.get(refPerfil)]);
+  // Una cuenta de Firebase Auth = un perfil. La transaccion evita que dos
+  // llamadas simultaneas desde el mismo usuario creen el perfil dos veces.
+  await refPerfil.firestore.runTransaction(async (tx) => {
+    const perfilSnap = await tx.get(refPerfil);
     if (perfilSnap.exists) throw new HttpsError("already-exists", "Tu perfil ya existe.");
-    if (dniSnap.exists) throw new HttpsError("already-exists", "Ese DNI ya esta registrado.");
-
-    tx.create(refDni, { uid, creado_en: FieldValue.serverTimestamp() });
 
     // Perfil publico
     tx.create(refPerfil, {
@@ -93,9 +86,10 @@ export const completarPerfil = onCall({ secrets: [DNI_PEPPER] }, async (req) => 
       creado_en: FieldValue.serverTimestamp(),
     });
 
-    // Datos sensibles: solo los lee el dueno (ver reglas).
+    // Datos personales: solo los lee el dueno (ver reglas). Guardamos la
+    // fecha de nacimiento, no la edad, porque la edad cambia sola; y el
+    // momento en que acepto los terminos, que la ley exige poder acreditar.
     tx.create(refPerfil.collection("privado").doc("datos"), {
-      dni_hash: dniHash,
       fecha_nacimiento: d.fechaNacimiento,
       acepto_terminos_en: FieldValue.serverTimestamp(),
     });

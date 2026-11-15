@@ -7,12 +7,11 @@ import { db, exigirSesion, refUsuario } from "./comun";
 export const borrarCuenta = onCall(async (req) => {
   const uid = exigirSesion(req);
   const perfil = refUsuario(uid);
-  const privado = (await perfil.collection("privado").doc("datos").get()).data();
 
-  // Borra perfil, subcolecciones y el registro del DNI (para que pueda volver
-  // a registrarse). Las calificaciones que emitio se conservan sin datos personales.
+  // Borra el perfil, sus subcolecciones (privado, dispositivos) y las sumas
+  // de reputacion. Las calificaciones que emitio se conservan, porque ya no
+  // contienen datos personales de quien se va.
   await db.recursiveDelete(perfil);
-  if (privado?.dni_hash) await db.doc(`dni_registrados/${privado.dni_hash}`).delete();
   await db.doc(`reputacion/${uid}`).delete();
   await getAuth().deleteUser(uid);
   return { ok: true };

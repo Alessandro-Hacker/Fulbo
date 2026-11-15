@@ -44,6 +44,62 @@ export const alCrearPartido = onDocumentCreated("partidos/{partidoId}", async (e
   // sobre usuarios con ubicacion). Conviene hacerlo con un tema FCM por ciudad.
 });
 
+/**
+ * "Se juega aunque falte gente."
+ *
+ * Por defecto un partido que llega a su hora sin llenarse pasa a VENCIDO
+ * (ver programadas.ts). En la practica casi ningun partido se llena al
+ * principio, asi que el organizador puede confirmar que igual se juega: el
+ * partido queda marcado y la tarea programada lo pasa a EN_JUEGO en vez de
+ * vencerlo.
+ *
+ * El partido sigue en estado 'publicado' y con cupos libres, asi que quien
+ * quiera todavia puede sumarse hasta la hora de inicio.
+ */
+export const confirmarPartidoIncompleto = onCall(async (req) => {
+  const uid = exigirSesion(req);
+  const { partidoId, seJuega } = req.data as { partidoId: string; seJuega?: boolean };
+  if (typeof partidoId !== "string") throw new HttpsError("invalid-argument", "partidoId");
+  const confirmar = seJuega !== false; // por omision, confirmar
+
+  const pRef = refPartido(partidoId);
+  const avisar: string[] = [];
+  let jugadores = 0;
+
+  await db.runTransaction(async (tx) => {
+    const p = await tx.get(pRef);
+    if (!p.exists) throw new HttpsError("not-found", "No existe.");
+    const partido = p.data()!;
+    if (partido.organizador_uid !== uid) {
+      throw new HttpsError("permission-denied", "No eres el organizador.");
+    }
+    if (partido.estado !== "publicado") {
+      // 'completo' ya se juega solo; el resto son estados finales.
+      throw new HttpsError("failed-precondition", "Este partido no esta esperando jugadores.");
+    }
+    if (partido.fecha_hora.toMillis() <= Date.now()) {
+      throw new HttpsError("failed-precondition", "El partido ya paso.");
+    }
+    if (partido.se_juega === confirmar) {
+      throw new HttpsError("already-exists", "Ya estaba asi.");
+    }
+
+    const insc = await tx.get(
+      pRef.collection("inscripciones").where("estado", "==", "aceptado"));
+    jugadores = insc.size;
+    insc.forEach((d) => { if (d.id !== uid) avisar.push(d.id); });
+
+    tx.update(pRef, { se_juega: confirmar });
+  });
+
+  if (confirmar) {
+    await notificar(avisar, "El partido va igual",
+      `Se juega aunque falten jugadores: van ${jugadores}.`,
+      { partidoId, tipo: "se_juega" });
+  }
+  return { seJuega: confirmar, jugadores };
+});
+
 export const cancelarPartido = onCall(async (req) => {
   const uid = exigirSesion(req);
   const { partidoId } = req.data as { partidoId: string };

@@ -39,7 +39,7 @@ service cloud.firestore {
     }
 
     // El documento usuarios/{uid} solo lo crea la funcion completarPerfil
-    // despues de validar DNI y edad. Si existe, el perfil esta completo.
+    // despues de verificar la edad. Si existe, el perfil esta completo.
     function perfilCompleto() {
       return correoVerificado() && exists(rutaUsuario(request.auth.uid));
     }
@@ -47,6 +47,53 @@ service cloud.firestore {
     function esPremium() {
       return perfilCompleto()
         && get(rutaUsuario(request.auth.uid)).data.plan == 'premium';
+    }
+
+    function rutaDueno(uid) {
+      return /databases/$(database)/documents/duenos_cancha/$(uid);
+    }
+
+    // Un dueno se registra solo, pero nace SIN verificar. Hasta que un admin
+    // lo apruebe (funcion verificarDueno) no puede publicar ninguna cancha.
+    function esDuenoVerificado() {
+      return correoVerificado()
+        && exists(rutaDueno(request.auth.uid))
+        && get(rutaDueno(request.auth.uid)).data.verificado == true;
+    }
+
+    // Validacion de los campos de una cancha. En create y en update
+    // request.resource.data es el documento COMPLETO que quedaria guardado,
+    // asi que sirve para los dos casos.
+    function datosCanchaValidos() {
+      return request.resource.data.nombre is string
+        && request.resource.data.nombre.size() >= 3
+        && request.resource.data.nombre.size() <= 80
+        && request.resource.data.direccion is string
+        && request.resource.data.direccion.size() <= 160
+        && request.resource.data.distrito is string
+        && request.resource.data.distrito.size() <= 60
+        && request.resource.data.ciudad is string
+        && request.resource.data.ciudad.size() <= 60
+        && request.resource.data.ubicacion is latlng
+        && request.resource.data.superficie in ['sintetico', 'grass', 'losa', 'cemento']
+        && request.resource.data.formatos is list
+        && request.resource.data.formatos.size() >= 1
+        && request.resource.data.formatos.size() <= 4
+        && request.resource.data.formatos.hasOnly(['4v4', '5v5', '7v7', '11v11'])
+        && request.resource.data.techada is bool
+        && request.resource.data.precio_hora is number
+        && request.resource.data.precio_hora >= 0
+        && request.resource.data.precio_hora <= 1000
+        && request.resource.data.abre_min is int
+        && request.resource.data.abre_min >= 0
+        && request.resource.data.abre_min <= 1440
+        && request.resource.data.cierra_min is int
+        && request.resource.data.cierra_min >= 0
+        && request.resource.data.cierra_min <= 1440
+        && request.resource.data.activa is bool
+        && (!('telefono' in request.resource.data)
+            || (request.resource.data.telefono is string
+                && request.resource.data.telefono.matches('[0-9]{6,9}')));
     }
 
     function soloCambia(campos) {
@@ -74,7 +121,7 @@ service cloud.firestore {
         && (!('nivel' in request.resource.data)
             || request.resource.data.nivel in ['recien', 'casual', 'intermedio', 'competitivo']);
 
-      // Datos sensibles (dni_hash, fecha_nacimiento): solo los lee el dueno.
+      // Datos personales (fecha_nacimiento, aceptacion de terminos): solo los lee el dueno.
       match /privado/{doc} {
         allow read: if esYo(uid);
         allow write: if false;
@@ -89,29 +136,62 @@ service cloud.firestore {
       }
     }
 
-    // Indice de DNI ya usados y acumuladores de reputacion: solo servidor.
-    match /dni_registrados/{hash} { allow read, write: if false; }
+    // Acumuladores de reputacion: solo servidor.
     match /reputacion/{uid}       { allow read, write: if false; }
 
     // ---------- duenos de cancha y canchas -----------------------------------
     match /duenos_cancha/{uid} {
       allow read: if signedIn();
+
       allow create: if esYo(uid)
+        && correoVerificado()
         && request.resource.data.verificado == false
-        && request.resource.data.keys().hasOnly(['razon_social', 'ruc', 'telefono', 'verificado']);
+        && request.resource.data.keys().hasOnly(['razon_social', 'ruc', 'telefono', 'verificado'])
+        && request.resource.data.keys().hasAll(['razon_social', 'ruc', 'telefono', 'verificado'])
+        && request.resource.data.razon_social is string
+        && request.resource.data.razon_social.size() >= 3
+        && request.resource.data.razon_social.size() <= 120
+        && request.resource.data.ruc is string
+        && request.resource.data.ruc.matches('[0-9]{11}')
+        && request.resource.data.telefono is string
+        && request.resource.data.telefono.matches('[0-9]{6,9}');
+
+      // 'verificado' NO esta en la lista: solo lo cambia la funcion
+      // verificarDueno con el Admin SDK, que se salta estas reglas.
       allow update: if esYo(uid)
         && soloCambia(['razon_social', 'telefono']);
+
       allow delete: if false;
     }
 
     match /canchas/{canchaId} {
       allow read: if signedIn();
-      allow create: if signedIn()
+
+      // Solo un dueno VERIFICADO publica canchas, y solo con los campos de
+      // esta lista: 'geohash', 'rating' y 'num_resenas' los escribe el
+      // servidor, por eso no aparecen aqui.
+      allow create: if esDuenoVerificado()
         && request.resource.data.dueno_uid == request.auth.uid
-        && exists(/databases/$(database)/documents/duenos_cancha/$(request.auth.uid));
-      allow update: if signedIn()
+        && request.resource.data.keys().hasOnly([
+             'dueno_uid', 'nombre', 'direccion', 'distrito', 'ciudad',
+             'ubicacion', 'superficie', 'formatos', 'techada', 'precio_hora',
+             'abre_min', 'cierra_min', 'telefono', 'activa', 'creado_en'])
+        && request.resource.data.keys().hasAll([
+             'dueno_uid', 'nombre', 'direccion', 'distrito', 'ciudad',
+             'ubicacion', 'superficie', 'formatos', 'techada', 'precio_hora',
+             'abre_min', 'cierra_min', 'activa', 'creado_en'])
+        && datosCanchaValidos()
+        && request.resource.data.activa == true
+        && request.resource.data.creado_en == request.time;
+
+      allow update: if esDuenoVerificado()
         && resource.data.dueno_uid == request.auth.uid
-        && request.resource.data.dueno_uid == resource.data.dueno_uid;
+        && soloCambia([
+             'nombre', 'direccion', 'distrito', 'ciudad', 'ubicacion',
+             'superficie', 'formatos', 'techada', 'precio_hora',
+             'abre_min', 'cierra_min', 'telefono', 'activa'])
+        && datosCanchaValidos();
+
       allow delete: if false; // se desactiva con activa = false
     }
 

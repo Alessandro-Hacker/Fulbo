@@ -21,6 +21,8 @@ export const POSICIONES = ["arquero", "defensa", "medio", "delantero"] as const;
 export const MIN_CALIFICACIONES_PARA_PUNTAJE = 5;
 export const HORAS_AVISO_CANCELACION = 3;
 export const HORAS_VENTANA_CALIFICACION = 48;
+/** Limite de FCM por llamada a sendEachForMulticast. */
+export const MAX_TOKENS_POR_ENVIO = 500;
 
 export type EstadoPartido =
   | "publicado" | "completo" | "en_juego" | "en_calificacion"
@@ -60,28 +62,35 @@ export async function notificar(
   cuerpo: string,
   datos: Record<string, string> = {},
 ): Promise<void> {
-  const tokens: string[] = [];
+  // Cada token se guarda junto a SU dueno: si el envio falla hay que borrar
+  // ese dispositivo y no el de todos los destinatarios del lote.
+  const dispositivos: { uid: string; token: string }[] = [];
   for (const uid of new Set(uids)) {
     const snap = await db.collection(`usuarios/${uid}/dispositivos`).get();
-    snap.forEach((d) => tokens.push(d.id));
+    snap.forEach((d) => dispositivos.push({ uid, token: d.id }));
   }
-  if (tokens.length === 0) return;
+  if (dispositivos.length === 0) return;
 
-  const resp = await getMessaging().sendEachForMulticast({
-    tokens,
-    notification: { title: titulo, body: cuerpo },
-    data: datos,
-  });
-
-  // Limpia tokens que ya no existen (app desinstalada, etc.)
   const borrar: Promise<unknown>[] = [];
-  resp.responses.forEach((r, i) => {
-    const code = r.error?.code ?? "";
-    if (code.includes("registration-token-not-registered") || code.includes("invalid-argument")) {
-      for (const uid of uids) {
-        borrar.push(db.doc(`usuarios/${uid}/dispositivos/${tokens[i]}`).delete());
+
+  // sendEachForMulticast acepta como maximo 500 tokens por llamada.
+  for (let i = 0; i < dispositivos.length; i += MAX_TOKENS_POR_ENVIO) {
+    const lote = dispositivos.slice(i, i + MAX_TOKENS_POR_ENVIO);
+    const resp = await getMessaging().sendEachForMulticast({
+      tokens: lote.map((d) => d.token),
+      notification: { title: titulo, body: cuerpo },
+      data: datos,
+    });
+
+    // Limpia tokens que ya no existen (app desinstalada, etc.)
+    resp.responses.forEach((r, j) => {
+      const code = r.error?.code ?? "";
+      if (code.includes("registration-token-not-registered") || code.includes("invalid-argument")) {
+        const d = lote[j];
+        borrar.push(db.doc(`usuarios/${d.uid}/dispositivos/${d.token}`).delete());
       }
-    }
-  });
+    });
+  }
+
   await Promise.allSettled(borrar);
 }
