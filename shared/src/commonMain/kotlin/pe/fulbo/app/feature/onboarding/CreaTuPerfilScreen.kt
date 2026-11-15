@@ -34,6 +34,7 @@ import pe.fulbo.app.core.designsystem.component.FulboPrimaryButton
 import pe.fulbo.app.core.designsystem.component.FulboTextField
 import pe.fulbo.app.core.designsystem.theme.FulboColors
 import pe.fulbo.app.core.designsystem.theme.spacing
+import pe.fulbo.app.feature.auth.MensajeError
 
 /**
  * Onboarding Paso 1 de 2: Crea tu perfil (Mockup página 1).
@@ -44,10 +45,11 @@ import pe.fulbo.app.core.designsystem.theme.spacing
 fun CreaTuPerfilScreen(
     onSiguiente: (nombre: String, apellido: String, alias: String) -> Unit,
     modifier: Modifier = Modifier,
+    error: String? = null,
 ) {
-    var nombre by remember { mutableStateOf("Diego") }
-    var apellido by remember { mutableStateOf("Ramírez") }
-    var alias by remember { mutableStateOf("Chino") }
+    var nombre by remember { mutableStateOf("") }
+    var apellido by remember { mutableStateOf("") }
+    var alias by remember { mutableStateOf("") }
     var hasFotoSeleccionada by remember { mutableStateOf(false) }
 
     val spacing = MaterialTheme.spacing
@@ -156,6 +158,8 @@ fun CreaTuPerfilScreen(
             placeholder = "Ej: Chino, Lucho, Rayo...",
             supportingText = "Tu alias es el nombre que verán los demás en los partidos.",
         )
+
+        MensajeError(error)
 
         Spacer(Modifier.weight(1f))
         Spacer(Modifier.height(spacing.xl))

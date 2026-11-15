@@ -25,6 +25,8 @@ service cloud.firestore {
       return signedIn() && request.auth.uid == uid;
     }
 
+    // TODO(blaze): hoy NO se exige correo verificado (etapa Spark, sin pantalla
+    // "Revisa tu correo"). Para volver a exigirlo, usar esta funcion en perfilCompleto().
     function correoVerificado() {
       return signedIn() && request.auth.token.email_verified == true;
     }
@@ -38,10 +40,10 @@ service cloud.firestore {
       return /databases/$(database)/documents/usuarios/$(uid);
     }
 
-    // El documento usuarios/{uid} solo lo crea la funcion completarPerfil
-    // despues de validar DNI y edad. Si existe, el perfil esta completo.
+    // Si existe usuarios/{uid}, el perfil esta completo.
+    // TODO(blaze): volver a exigir correoVerificado() cuando exista la pantalla de verificacion.
     function perfilCompleto() {
-      return correoVerificado() && exists(rutaUsuario(request.auth.uid));
+      return signedIn() && exists(rutaUsuario(request.auth.uid));
     }
 
     function esPremium() {
@@ -62,13 +64,43 @@ service cloud.firestore {
     match /usuarios/{uid} {
       allow read: if signedIn();
 
-      // Crear: lo hace la Cloud Function completarPerfil.
-      allow create, delete: if false;
+      // Crear: ETAPA SPARK (sin Cloud Functions). El dueno crea su propio perfil
+      // con reputacion en blanco y plan gratuito; no puede darse plan, faltas
+      // ni partidos. Sin DNI: la app solo confirma "tengo 16 anos o mas".
+      // TODO(blaze): volver a `allow create: if false` y crear el perfil con la
+      // Cloud Function completarPerfil (valida DNI y edad en el servidor).
+      allow create: if esYo(uid)
+        && request.resource.data.keys().hasOnly([
+             'nombre', 'apellido', 'alias', 'ciudad', 'deportes', 'ubicacion',
+             'foto_url', 'mayor_de_16', 'rep_global', 'rep_puntualidad',
+             'rep_asistencia', 'rep_pago', 'rep_trato', 'num_calificaciones',
+             'partidos_jugados', 'faltas', 'plan', 'plan_vence_en', 'creado_en'])
+        && request.resource.data.keys().hasAll([
+             'nombre', 'apellido', 'alias', 'deportes', 'mayor_de_16', 'plan', 'creado_en'])
+        && request.resource.data.nombre is string
+        && request.resource.data.nombre.size() >= 2
+        && request.resource.data.nombre.size() <= 50
+        && request.resource.data.apellido is string
+        && request.resource.data.apellido.size() >= 2
+        && request.resource.data.apellido.size() <= 50
+        && request.resource.data.alias is string
+        && request.resource.data.alias.size() <= 30
+        && request.resource.data.deportes is map
+        && request.resource.data.mayor_de_16 == true
+        && request.resource.data.plan == 'gratuito'
+        && request.resource.data.get('num_calificaciones', 0) == 0
+        && request.resource.data.get('partidos_jugados', 0) == 0
+        && request.resource.data.get('faltas', 0) == 0
+        && request.resource.data.get('rep_global', null) == null
+        && request.resource.data.get('plan_vence_en', null) == null
+        && request.resource.data.creado_en == request.time;
+
+      allow delete: if false;
 
       // El dueno solo puede editar datos "cosmeticos". Nunca reputacion, plan,
       // faltas ni partidos_jugados.
       allow update: if esYo(uid)
-        && soloCambia(['alias', 'ciudad', 'posicion', 'nivel', 'ubicacion', 'foto_url'])
+        && soloCambia(['alias', 'ciudad', 'deportes', 'posicion', 'nivel', 'ubicacion', 'foto_url'])
         && (!('posicion' in request.resource.data)
             || request.resource.data.posicion in ['arquero', 'defensa', 'medio', 'delantero'])
         && (!('nivel' in request.resource.data)
