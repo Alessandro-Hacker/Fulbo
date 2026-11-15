@@ -17,11 +17,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Configurar JDK 21
+      - name: Set up JDK 21 (JetBrains)
         uses: actions/setup-java@v4
         with:
-          distribution: temurin
-          java-version: 21
+          distribution: 'jetbrains' # Especifica el proveedor que Gradle está buscando
+          java-version: '21'        # La versión exacta que requiere el archivo de propiedades
 
       - name: Configurar Gradle (con caché)
         uses: gradle/actions/setup-gradle@v4
