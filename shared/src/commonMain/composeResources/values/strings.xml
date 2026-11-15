@@ -13,6 +13,7 @@
 
     <!-- Navegación inferior -->
     <string name="tab_canchas">Canchas</string>
+    <string name="tab_mapa">Mapa</string>
     <string name="tab_partidos">Partidos</string>
     <string name="tab_equipo">Equipo</string>
     <string name="tab_liga">Liga</string>

@@ -76,11 +76,11 @@ fun CanchasScreen(
     onReintentar: () -> Unit,
     onCanchaClick: (String) -> Unit,
 ) {
-    val sp = MaterialTheme.spacing
+    val spacing = MaterialTheme.spacing
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(sp.screen),
-        verticalArrangement = Arrangement.spacedBy(sp.md),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(spacing.screen),
+        verticalArrangement = Arrangement.spacedBy(spacing.md),
     ) {
         item {
             OutlinedTextField(
@@ -99,9 +99,9 @@ fun CanchasScreen(
             )
         }
         item {
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(sp.sm)) {
-                items(FiltroCancha.entries) { f ->
-                    FulboChip(f.etiqueta, selected = f in state.filtros, onClick = { onFiltroClick(f) })
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(spacing.sm)) {
+                items(FiltroCancha.entries) { filtro ->
+                    FulboChip(filtro.etiqueta, isSelected = filtro in state.filtros, onClick = { onFiltroClick(filtro) })
                 }
             }
         }
@@ -123,7 +123,7 @@ fun CanchasScreen(
         when {
             error != null -> item { ErrorBox(error, onReintentar) }
             state.cargando && state.canchas.isEmpty() -> item {
-                Box(Modifier.fillMaxWidth().padding(sp.lg), contentAlignment = Alignment.Center) {
+                Box(Modifier.fillMaxWidth().padding(spacing.lg), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator()
                 }
             }
@@ -156,7 +156,7 @@ private fun CanchaCard(cancha: Cancha, onClick: () -> Unit) {
                 )
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     cancha.proximoLibre?.let {
-                        StatusPill(it, if (cancha.ultimaHora) FulboColors.Orange else FulboColors.Green, filled = false)
+                        StatusPill(it, if (cancha.ultimaHora) FulboColors.Orange else FulboColors.Green, isFilled = false)
                     }
                     Text("S/ ${cancha.precioHora.toInt()}${stringResource(Res.string.per_hour)}",
                         style = MaterialTheme.typography.labelLarge)
