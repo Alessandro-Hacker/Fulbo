@@ -38,6 +38,8 @@ import pe.fulbo.app.core.designsystem.component.StatusPill
 import pe.fulbo.app.core.designsystem.theme.FulboColors
 import pe.fulbo.app.core.designsystem.theme.spacing
 import pe.fulbo.app.core.model.DeporteCasual
+import pe.fulbo.app.core.model.DeportePerfilConfig
+import pe.fulbo.app.feature.auth.MensajeError
 
 private const val MAXIMO_POSICIONES_SELECCIONABLES = 2
 
@@ -48,8 +50,10 @@ private const val MAXIMO_POSICIONES_SELECCIONABLES = 2
  */
 @Composable
 fun TusDeportesScreen(
-    onCrearPerfil: () -> Unit,
+    onCrearPerfil: (List<DeportePerfilConfig>) -> Unit,
     modifier: Modifier = Modifier,
+    isLoading: Boolean = false,
+    error: String? = null,
 ) {
     var deporteActivo by remember { mutableStateOf(DeporteCasual.FUTBOL) }
 
@@ -152,12 +156,27 @@ fun TusDeportesScreen(
                 )
             }
 
+        MensajeError(error)
+
         Spacer(Modifier.weight(1f))
         Spacer(Modifier.height(spacing.xl))
 
         FulboPrimaryButton(
             text = "Crear mi perfil",
-            onClick = onCrearPerfil,
+            isLoading = isLoading,
+            onClick = {
+                onCrearPerfil(
+                    DeporteCasual.entries.map { deporte ->
+                        val posiciones = mapaPosiciones[deporte]?.toList().orEmpty()
+                        DeportePerfilConfig(
+                            deporte = deporte,
+                            posiciones = posiciones,
+                            nivel = mapaNiveles[deporte] ?: "Casual",
+                            isCompletado = posiciones.isNotEmpty(),
+                        )
+                    },
+                )
+            },
         )
         Spacer(Modifier.height(spacing.md))
     }

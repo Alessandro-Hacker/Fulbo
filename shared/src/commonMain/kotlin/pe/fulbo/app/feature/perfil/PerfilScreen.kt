@@ -3,6 +3,7 @@ package pe.fulbo.app.feature.perfil
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -20,12 +21,17 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.EventBusy
 import androidx.compose.material.icons.outlined.LocalFireDepartment
 import androidx.compose.material.icons.outlined.SportsSoccer
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import org.koin.compose.viewmodel.koinViewModel
+import pe.fulbo.app.feature.perfil.domain.PerfilUsuario
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -36,6 +42,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import pe.fulbo.app.core.designsystem.component.FulboCard
+import pe.fulbo.app.core.designsystem.component.FulboSecondaryButton
 import pe.fulbo.app.core.designsystem.component.RankAvatar
 import pe.fulbo.app.core.designsystem.component.StarRatingBar
 import pe.fulbo.app.core.designsystem.theme.FulboColors
@@ -45,19 +52,40 @@ import pe.fulbo.app.core.model.ResenaJugador
 
 private const val PUNTAJE_MAXIMO_CONDUCTA: Float = 5.0f
 
-private val RESENAS_EJEMPLO: List<ResenaJugador> = listOf(
-    ResenaJugador(id = "1", texto = "Llegó puntual y pagó su parte.", autor = "Marco"),
-    ResenaJugador(id = "2", texto = "No se presentó al partido del sábado.", autor = "Luis"),
-)
+/** Conecta la pantalla con el ViewModel: carga el perfil real del usuario con sesión. */
+@Composable
+fun PerfilRoute(
+    onCerrarSesion: () -> Unit,
+    viewModel: PerfilViewModel = koinViewModel(),
+) {
+    val estado by viewModel.uiState.collectAsStateWithLifecycle()
+    val perfil = estado.perfil
+    when {
+        perfil != null -> PerfilScreen(perfil = perfil, onCerrarSesion = onCerrarSesion)
+        estado.cargando -> Box(Modifier.fillMaxSize().background(FulboColors.Background), Alignment.Center) {
+            CircularProgressIndicator(color = FulboColors.Green)
+        }
+        else -> Column(
+            Modifier.fillMaxSize().background(FulboColors.Background).padding(MaterialTheme.spacing.screen),
+            verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.md, Alignment.CenterVertically),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text(estado.error ?: "No se pudo cargar tu perfil.", color = FulboColors.TextSecondary)
+            FulboSecondaryButton(text = "Reintentar", onClick = viewModel::cargar)
+            FulboSecondaryButton(text = "Cerrar sesión", onClick = onCerrarSesion)
+        }
+    }
+}
 
 /**
- * Pantalla de perfil de jugador con reputación, desglose de conducta y reseñas (Mockup página 4).
- *
- * @param modifier Modificador de Compose.
+ * Pantalla de perfil de jugador con reputación y estadísticas (Mockup página 4).
+ * Las reseñas individuales llegarán con las calificaciones; por ahora no se muestran.
  */
 @Composable
 fun PerfilScreen(
+    perfil: PerfilUsuario,
     modifier: Modifier = Modifier,
+    onCerrarSesion: (() -> Unit)? = null,
 ) {
     val spacing = MaterialTheme.spacing
 
@@ -70,36 +98,48 @@ fun PerfilScreen(
     ) {
         item {
             PerfilCabecera(
-                nombre = "Diego Ramírez",
-                alias = "Chino",
-                posicion = "Medio",
-                nivel = "Intermedio",
-                iniciales = "DR",
-                rango = RangoEquipo.PLATA,
+                nombre = perfil.nombreCompleto,
+                alias = perfil.alias,
+                posicion = perfil.posicion ?: "Sin posición",
+                nivel = perfil.nivel ?: "Sin nivel",
+                iniciales = perfil.iniciales,
+                rango = RangoEquipo.BRONCE,
             )
         }
 
         item {
-            PerfilReputacionCard(
-                rating = 4.6,
-                totalResenas = 23,
-                puntajePuntualidad = 4.6f,
-                puntajeAsistencia = 4.5f,
-                puntajePago = 4.2f,
-                puntajeTrato = 4.8f,
-            )
+            if (perfil.reputacion == null) {
+                FulboCard {
+                    Text(
+                        text = "Aún no tienes calificaciones. Juega tus primeros partidos y aparecerán aquí.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = FulboColors.TextSecondary,
+                    )
+                }
+            } else {
+                PerfilReputacionCard(
+                    rating = perfil.reputacion,
+                    totalResenas = perfil.numCalificaciones,
+                    puntajePuntualidad = (perfil.repPuntualidad ?: 0.0).toFloat(),
+                    puntajeAsistencia = (perfil.repAsistencia ?: 0.0).toFloat(),
+                    puntajePago = (perfil.repPago ?: 0.0).toFloat(),
+                    puntajeTrato = (perfil.repTrato ?: 0.0).toFloat(),
+                )
+            }
         }
 
         item {
             PerfilEstadisticasRow(
-                partidosJugados = 38,
-                semanasRacha = 5,
-                faltas = 1,
+                partidosJugados = perfil.partidosJugados,
+                semanasRacha = 0,
+                faltas = perfil.faltas,
             )
         }
 
-        item {
-            PerfilResenasSection(resenas = RESENAS_EJEMPLO)
+        if (onCerrarSesion != null) {
+            item {
+                FulboSecondaryButton(text = "Cerrar sesión", onClick = onCerrarSesion)
+            }
         }
     }
 }

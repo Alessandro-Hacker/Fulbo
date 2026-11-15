@@ -40,7 +40,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -388,6 +392,8 @@ fun FulboTextField(
     supportingText: String? = null,
     isSingleLine: Boolean = true,
     trailingIcon: @Composable (() -> Unit)? = null,
+    isPassword: Boolean = false,
+    keyboardType: KeyboardType = KeyboardType.Text,
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
         Text(
@@ -399,6 +405,10 @@ fun FulboTextField(
         OutlinedTextField(
             value = value,
             onValueChange = onValueChange,
+            visualTransformation = if (isPassword) PasswordVisualTransformation() else VisualTransformation.None,
+            keyboardOptions = KeyboardOptions(
+                keyboardType = if (isPassword) KeyboardType.Password else keyboardType,
+            ),
             placeholder = if (placeholder.isNotEmpty()) {
                 { Text(placeholder, color = FulboColors.TextDisabled) }
             } else null,
